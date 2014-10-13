@@ -1,39 +1,19 @@
-
 import wx # for more message boxes than in logger
 import os
 import pickle
 import time
 import logger
 
-title = "Laser Object"
-description = "should not be run"
-
-
-
-def run_tool(window_parent, device):
-	pass
-
-# class to store model info of a particular diode
-class LaserDiodeInfo():
-	def __init__(self, serNum, wavLen, initCur,  maxCur, minCur, step, model = "other"):
-		self.model = model
-		self.serNum = serNum
-		self.wavLen = wavLen
-		self.initCur = initCur
-		self.step = step
-		self.maxCur = maxCur
-		self.minCur = minCur
-
-	
-
-
 # class to contain all info and methods related to a laser diode
 class LaserDiode():
-	info = None
-	def __init__(self, info, fName=None):
-		self.info = info
+	def __init__(self, serialNumber, waveLength, modelNum, maxRange, fName=None):
+
+		self.serialNumber = serialNumber
+		self.waveLength = waveLength
+		self.modelNum = modelNum
+		self.maxRange = maxRange
+
 		self.fName = fName
-		self.powerCurves = [] # List of results from the power curve tool.
 		self.on = False
 		self.lastOn = 0
 		self.lastWarm = 0
@@ -55,45 +35,58 @@ class LaserDiode():
 
 
 		# test results:
-		self.initTest = None
-		self.diodePreCouple = None
-		self.diodePostCouple = None
-		self.diodePostAssemble = None
-		self.burnIn = None
-		self.final = None
+		#self.initTest = None
+		#self.diodePreCouple = None
+		#self.diodePostCouple = None
+		#self.diodePostAssemble = None
+		#self.burnIn = None
+		#self.final = None
 		
 		self.tests = dict()
+		self.powerCurves = [] # List of results from the power curve tool.
 	def generateReport(self):
 		pass
 
 	def save(self):
 		''' saves this object to a file '''
-		self.stop()
-		digitals = self.digitals
-		MPD = self.MPD
-		LSR_PWR = self.LSR_PWR
-		TEMP = self.TEMP
-		CUR_READ = self.CUR_READ
-		laserOutChan = self.laserOutChan
+		try:
+			self.stop()
+			digitals = self.digitals
+			MPD = self.MPD
+			LSR_PWR = self.LSR_PWR
+			TEMP = self.TEMP
+			CUR_READ = self.CUR_READ
+			laserOutChan = self.laserOutChan
 
-		self.digitals = None
-		self.MPD = None
-		self.LSR_PWR = None
-		self.TEMP = None
-		self.CUR_READ = None
-		self.laserOutChan = None
-		
-		if self.fName is not None:
-			outFile = open(self.fName, "w")
-			pickle.dump( self, outFile )
-			outFile.close()
+			self.digitals = None
+			self.MPD = None
+			self.LSR_PWR = None
+			self.TEMP = None
+			self.CUR_READ = None
+			self.laserOutChan = None
+			
+			if self.fName is not None:
+				d = os.path.dirname(self.fName)
+				print d
+				try:
+					os.makedirs(d)
+				except OSError:
+					if not os.path.isdir(d):
+						raise
+				outFile = open(self.fName, "w")
+				pickle.dump( self, outFile )
+				outFile.close()
 
-		self.digitals = digitals
-		self.MPD = MPD
-		self.LSR_PWR = LSR_PWR
-		self.TEMP = TEMP
-		self.CUR_READ = CUR_READ
-		self.laserOutChan = laserOutChan
+			self.digitals = digitals
+			self.MPD = MPD
+			self.LSR_PWR = LSR_PWR
+			self.TEMP = TEMP
+			self.CUR_READ = CUR_READ
+			self.laserOutChan = laserOutChan
+		except Exception as e:
+			logger.log("Failed to save diode", e, logger.ERROR)
+			logger.message("Failed to save diode info! Any test data was not saved")
+
 	def start(self, warm=True, relay=False):
 		''' starts the laser at minCur '''
 
@@ -137,6 +130,7 @@ class LaserDiode():
 		# set current level on P2 to min cur
 		#self.pwr = self.info.minCur
 		#self.setValue( self.info.minCur )
+
 		val = wx.MessageBox("!! Laser Activation !!", "!! WARNING !!", wx.OK | wx.CANCEL | wx.ICON_WARNING)
 		if val != wx.OK:
 			return False
@@ -150,7 +144,7 @@ class LaserDiode():
 			self.digitals.setValue( self.LSRON, pinmask=self.mask )
 		
 		# start laser at diode's minCur
-		self.setValue( self.info.minCur )
+		self.setValue( self.maxRange[0] )
 		self.laserOutChan.start()
 		#self.laserOutChan.setValue( self.info.minCur )
 
@@ -182,6 +176,10 @@ class LaserDiode():
 		''' changes the output power of the laser '''
 		if self.digitals is None or self.laserOutChan is None:
 			logger.log("Laser", "improper load.", logger.ERROR)
+			return False
+			
+		if newPwr > self.maxRange[1]:
+			logger.log("Laser", "Power set too high")
 			return False
 			
 		self.pwr = int( newPwr )

@@ -10,8 +10,17 @@ import tests
 import Queue
 import logger
 import graph
-from scipy import stats
+#from scipy import stats
 
+class TestResult():
+	def __init__(self, name, description, data, passed):
+		self.name = name
+		self.description = description
+		self.data = data
+		self.time = time.time()
+		self.passed = passed
+	def __str__(self):
+		return self.name + " : " + self.description + "\n|| -> " + str(self.passed)
 			
 
 #helper function -------
@@ -21,30 +30,47 @@ def scale_bitmap(bitmap, width, height):
     result = wx.BitmapFromImage(image)
     return result	
 
-
-class InitialTest():
-	def  __init__(self):
-		self.name = "Initial Diode Test"
-		self.description  = "Test of the raw diode's output power"
-		
+class Test():
+	def __init__(self, name, description):
+		self.name = name
+		self.description = description
+	def runTest(self, parent, diode):
+		pass
+class PowerCurveTest(Test):
+	def __init__(self, title, description, powerRange, step):
+		Test.__init__(self, title, description)
+		self.powerRange = powerRange
+		self.step = step
 	def runTest( self, parent, diode):
-		graphWnd = graph.GraphFrame( parent,xRange=(diode.info.initCur, diode.info.maxCur), title=self.name, xlabel="Current (amp)",ylabel="Output", showPoints=True)
-		wnd = initTestGUI(parent, diode, self, graphWnd )
+		graphWnd = graph.GraphFrame( parent,xRange=self.powerRange, title=self.name, xlabel="Current (amp)",ylabel="Output", showPoints=True)
+		wnd = PowerCurve.PowerCurveTool(parent, diode, self.powerRange, self.step, graphWnd = graphWnd, info = self)
 		graphWnd.Show()
-		wnd.Show()
-				
-class CoupleProcedure():
-	def  __init__(self):
-		self.name = "Couple Diode"
-		self.description  = "Allow user to couple the diode"
-		
-	def runTest( self, parent, diode):
+		wnd.ShowModal()
+		return TestResult( self.name, self.description, wnd.curveData, wnd.completed)
+
+class RawPowerCurveTest(PowerCurveTest):
+	def runTest(self, parent, diode):
+		graphWnd = graph.GraphFrame( parent,xRange=self.powerRange, title=self.name, xlabel="Current (amp)",ylabel="Output", showPoints=True)
+		wnd = initTestGUI(parent, diode, self.powerRange, self.step, graphWnd = graphWnd, info = self )
+		graphWnd.Show()
+		wnd.ShowModal()
+		return TestResult( self.name, self.description, wnd.curveData, wnd.completed)
+
+class CoupleTest(Test):
+	def __init__(self, title, description, init):
+		Test.__init__(self, title, description)
+		self.init = init
+	def runTest(self, parent, diode):
 		billboard = CoupleBillboard(parent, diode, self )
 		billboard.Show()
+		return TestResult( self.name, self.description, "Passed", True)
 
-		#controls = LaserControls(parent, diode, self, 1, initCur=diode.info.minCur)
-		#controls.Show()
-	
+class BurnInTest(Test):
+	def __init__(self, init):
+		Test.__init__(self, "Burn-in test", "torture-test the diodes for several hours at max current")
+		self.init = init
+	def runTest(self, parent, diode):
+		return TestResult( self.name, self.description, "Passed", True)
 
 
 #------------------- GUI classes ----------------
@@ -52,7 +78,7 @@ class CoupleProcedure():
 	
 class LaserControl(wx.Dialog):
 
-	def __init__(self, parent, diode, testInfo, sample_size=1,initCur=None, maxCur=None):
+	def __init__(self, parent, diode, testInfo, powerRange, sample_size=1):
 		self.parent = parent
 		self.diode = diode
 		self.testInfo = testInfo
@@ -61,14 +87,8 @@ class LaserControl(wx.Dialog):
 		self.onBitmap = scale_bitmap(wx.Bitmap("red-led-on-md.png"), 30, 30)
 		self.offBitmap = scale_bitmap(wx.Bitmap("red-led-off-md.png"), 30, 30)
 
-		if initCur == None:
-			self.initCur = self.diode.info.initCur
-		else:
-			self.initCur = initCur
-		if maxCur == None:
-			self.maxCur = self.diode.info.maxCur
-		else:
-			self.maxCur = maxCur
+		self.initCur = powerRange[0]
+		self.maxCur = powerRange[1]
 
 		ico = wx.Icon('OFSI-Logo.ico', wx.BITMAP_TYPE_ICO )
 		self.SetIcon( ico )
@@ -155,10 +175,8 @@ class LaserControl(wx.Dialog):
 
 class CoupleControls(LaserControl):
 
-	def __init__(self, parent, diode, testInfo, sample_size=1,initCur=None, maxCur=None):
-		initCur = diode.info.minCur
-		maxCur = diode.info.initCur
-		LaserControl.__init__(self, parent, diode, testInfo, sample_size, initCur, maxCur)
+	def __init__(self, parent, diode, testInfo, powerRange, sample_size=1):
+		LaserControl.__init__(self, parent, diode, testInfo, sample_size, powerRange)
 
 
 	
@@ -274,11 +292,10 @@ class CoupleBillboard(wx.Frame):
 
 	
 class initTestGUI( PowerCurve.PowerCurveGUI ):
-	def __init__( self, parent, diode,  testInfo, graphWnd=None ):
-		PowerCurve.PowerCurveGUI.__init__( self, parent,  diode )
+	def __init__( self, parent, diode,  powerRange, step, graphWnd=None, info=None ):
+		PowerCurve.PowerCurveGUI.__init__( self, parent, diode, powerRange, step, info=info )
 		self.parent = parent
 		self.graphWnd=graphWnd
-		self.testInfo =  testInfo
 		self.data["Raw Diode"] = dict()
 		
 		self.slopeval = 0
@@ -286,8 +303,6 @@ class initTestGUI( PowerCurve.PowerCurveGUI ):
 		self.intercept = 0
 		self.r_value = 0
 		self.p_value = 0
-
-		self.dataInfo = PowerCurve.DataInfo(testInfo.name, testInfo.description)
 
 		slopeSizer = wx.BoxSizer( wx.VERTICAL )
 		self.slopeTxt = wx.StaticText( self, wx.ID_ANY, u"Slope", wx.DefaultPosition, wx.DefaultSize, 0 )
@@ -328,10 +343,13 @@ class initTestGUI( PowerCurve.PowerCurveGUI ):
 		print x
 		print y
 		try:
-			self.slopeval, self.intercept, self.r_value, self.p_value, std_err = stats.linregress(x,y)
+			line = numpy.polyfit(x,y,1)
+			self.slopeval = line[0]
+			self.intercept = line[1]
+			#self.slopeval, self.intercept, self.r_value, self.p_value, std_err = stats.linregress(x,y)
 		#	self.xintercept = -self.intercept/self.slopeval
 		except Exception as e:
-			print "update(diodetesting)" + str(e   )
+			print "Error in update(diodetesting)" + str(e   )
 		slopestr = "{0:.3f}".format( self.slopeval )
 		threshstr ="{0:.3f}".format(self.intercept)
 
@@ -341,11 +359,4 @@ class initTestGUI( PowerCurve.PowerCurveGUI ):
 		PowerCurve.PowerCurveGUI.saveVal(self)
 		print "!!!" + str(self.diode.pwr)
 		self.data["Raw Diode"][self.lastPwr] = self.lastVal # "Raw Diode" entry initialized in __init__
-	def saveData(self):
-		PowerCurve.PowerCurveGUI.saveData(self)
-		self.diode.initTest = self.curveData 
-		self.diode.tests[ self.testInfo.name ] = self.curveData
-		self.parent.refresh()
-	def onClose(  self, event ):
-		PowerCurve.PowerCurveGUI.onClose(self, event)
 

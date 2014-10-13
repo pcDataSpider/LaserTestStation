@@ -27,9 +27,13 @@ def run_tool(window_parent, device):
 		diode = newDevice.newDevice(device)
 	if diode == None:
 		logger.log("Warning", "could not test device", logger.WARNING)
+	
+	modelObj = model.models[ diode.modelNum ]()
+	initCur = modelObj.minCur
+	initCur = modelObj.maxCur
 
-	graphWnd = graph.GraphFrame( window_parent,xRange=(diode.info.initCur, diode.info.maxCur), title="Power Curve", xlabel="Current (amp)",ylabel="Output", showPoints=True)
-	wnd = PowerCurveTool(window_parent,  diode, graphWnd=graphWnd)
+	graphWnd = graph.GraphFrame( window_parent,xRange=(initCur, maxCur), title="Power Curve", xlabel="Current (amp)",ylabel="Output", showPoints=True)
+	wnd = PowerCurveTool(window_parent,  diode, (initCur, maxCur), 1, graphWnd=graphWnd)
 	graphWnd.Show()
 	wnd.Show()
 
@@ -53,33 +57,30 @@ class CurveData():
 		self.date = date
 		self.time = time
 		self.vals = vals
-		self.info = info
 	def __str__(self):
 		result = "CurveData class STR method(NYI)" 
 		return result
-class DataInfo():
-	def __init__(self, title, description):
-		self.title = title
-		self.description = description
-	def __str__(self):
-		result = "DataInfo class STR method(NYI)"
-		return result
-
 
 class PowerCurveGUI ( wx.Dialog ):
 	
-	def __init__( self, parent, diode ):
-		wx.Dialog.__init__ ( self, parent, id = wx.ID_ANY, title = wx.EmptyString, pos = wx.DefaultPosition, size = wx.Size( 353,209 ), style = wx.DEFAULT_DIALOG_STYLE )
+	def __init__( self, parent, diode, powerRange, step, info=None ):
+		wx.Dialog.__init__ ( self, parent, id = wx.ID_ANY, title = "Power Curve Controls", pos = wx.DefaultPosition, size = wx.Size( 353,209 ), style = wx.DEFAULT_DIALOG_STYLE )
 		
 		self.SetSizeHintsSz( wx.DefaultSize, wx.DefaultSize )
 		self.onBitmap = scale_bitmap(wx.Bitmap("red-led-on-md.png"), 30, 30)
 		self.offBitmap = scale_bitmap(wx.Bitmap("red-led-off-md.png"), 30, 30)
 		self.diode = diode
-		self.initCur = self.diode.info.initCur
-		self.maxCur = self.diode.info.maxCur
-		self.step = self.diode.info.step
+
+		self.info = info # info as an arbitrary object that will be saved in the results, and into the diode object
+
+		self.complete = False
+		self.curveData = None
+
+		self.initCur = powerRange[0]
+		self.maxCur = powerRange[1]
+		self.step = step
 		self.warm = True
-		self.relay = False
+		self.relay = False # whether or not to test the relay
 
 		self.isOn = False
 		self.sampleSize = 10
@@ -87,10 +88,6 @@ class PowerCurveGUI ( wx.Dialog ):
 		self.data = dict()
 		self.val = 0
 		self.nVals = 0
-		
-		
-		self.dataInfo = DataInfo("Power Curve", "Data taken from diode at varying power levels")
-
 		
 		self.diode.LSR_PWR.register(self)
 		#self.diode.CIR_READ.register(self)
@@ -185,10 +182,11 @@ class PowerCurveGUI ( wx.Dialog ):
 		newPwr = self.laserPwr.GetValue() + self.step
 		if newPwr <= self.maxCur:
 			self.diode.LSR_PWR.deregister(self)
-			self.laserPwr.SetValue( newPwr )
+			self.laserPwr.SetValue( newPwr ) # change widget value
 			self.onCurChange(None)
 			def timerFunc():
 				self.diode.LSR_PWR.register(self)
+				pass
 			t = threading.Timer( .5, timerFunc )
 			t.start()
 		else:
@@ -198,7 +196,8 @@ class PowerCurveGUI ( wx.Dialog ):
 	def saveData(self):
 		''' save the entire power curve data to the Diode object '''
 		date = time.asctime()
-		self.curveData = CurveData(date, time.time(), self.data, self.dataInfo )
+		self.curveData = CurveData(date, time.time(), self.data, self.info)
+		self.diode.powerCurves.append(self.curveData)
 
 
 	def update(self):
@@ -262,28 +261,30 @@ class PowerCurveGUI ( wx.Dialog ):
 				dirname=dlg.GetDirectory()
 				fullPath = os.path.join(dirname, filename)	
 				outFile = open(fullPath, "w")
-				strFmt = str(self.curveData.info.title) + "\n" + str(self.curveData.info.description) + "\n,Power (adc reading)\ncurrent (amps)"
-				for sets in self.curveData.vals:
-					strFmt += "," + str(sets)
-				outFile.write(strFmt+"\n")
+				strFmt = str(self.curveData)
+				outFile.write(strFmt)
+				#strFmt = str(self.curveData.info.title) + "\n" + str(self.curveData.info.description) + "\n,Power (adc reading)\ncurrent (amps)"
+				#for sets in self.curveData.vals:
+				#	strFmt += "," + str(sets)
+				#outFile.write(strFmt+"\n")
 
 
-				rangeVals = []
-				for vals in self.curveData.vals.itervalues():
-					for n in vals:
-						if not n in rangeVals:
-							rangeVals.append(n)
-				rangeVals.sort()
+				#rangeVals = []
+				#for vals in self.curveData.vals.itervalues():
+				#	for n in vals:
+				#		if not n in rangeVals:
+				#			rangeVals.append(n)
+				#rangeVals.sort()
 				
-				for n in rangeVals:
-					strFmt = str(n) + ","
-					for vals in self.curveData.vals.itervalues():
-						if n in vals:
-							strFmt += str(vals[n]) + ","
-						else:
-							strFmt += ","
-					strFmt = strFmt[:-1] +  "\n"
-					outFile.write(strFmt)
+				#for n in rangeVals:
+				#	strFmt = str(n) + ","
+				#	for vals in self.curveData.vals.itervalues():
+				#		if n in vals:
+				#			strFmt += str(vals[n]) + ","
+				#		else:
+				#			strFmt += ","
+				#	strFmt = strFmt[:-1] +  "\n"
+				#	outFile.write(strFmt)
 						
 
 
@@ -307,6 +308,15 @@ class PowerCurveGUI ( wx.Dialog ):
 	def onClose(  self, event ):
 		self.stop()
 		self.diode.LSR_PWR.deregister(self)
+		self.completed = True
+		hasData = False
+		for vals in self.curveData.vals.itervalues(): # iterates over each data set in the curve data
+			hasData = True
+			for n in xrange( self.initCur, self.maxCur, self.step ):
+				if not n in vals:
+					self.completed = False
+					print "Missing " + str(n)
+		self.completed = self.completed and hasData
 		self.Destroy()
 
 	
@@ -315,8 +325,8 @@ class PowerCurveGUI ( wx.Dialog ):
 
 class PowerCurveTool( PowerCurveGUI ):
 
-	def __init__( self, parent,  diode ,graphWnd=None ):
-		PowerCurveGUI.__init__( self, parent, diode )
+	def __init__( self, parent,  diode, powerRange, step, graphWnd=None, info=None ):
+		PowerCurveGUI.__init__( self, parent, diode, powerRange, step, info )
 		self.graphWnd=graphWnd
 
 		appSizer = wx.BoxSizer( wx.VERTICAL )
@@ -364,6 +374,8 @@ class PowerCurveTool( PowerCurveGUI ):
 		#------------------------
 		self.appOnCheck = wx.CheckBox( self, wx.ID_ANY, u"Apperture", wx.DefaultPosition, wx.DefaultSize, 0 )
 		self.controlSizer.Add( self.appOnCheck, 0, wx.ALL|wx.ALIGN_CENTER_VERTICAL, 5 )
+		self.Layout()
+		self.Fit()
 	def update(self):
 		self.graphWnd.addPoint(self.diode.pwr, self.lastVal, self.wApp())
 

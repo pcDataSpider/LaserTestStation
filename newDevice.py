@@ -1,61 +1,54 @@
-
 import wx
 import os
 import pickle
-#import logger
 
-
-#import wx
-#import wx.lib.plot
 import time
 import logger
 import Laser
-#import graph
+
+import model
 
 title = "New Device"
 description = "Wizard to create a new device"
-
-modelsFilename = "models.pkl"
-models = [ "1509", "1511", "Other"]
-modelsInfo = [ (5, 25, 3, 1,  "1509"), (8, 30, 3, 1,  "1509") ]
 diodeFolder = "Diodes"
 
-
-
 def run_tool(window_parent, device):
-	diode = newDevice(device=device)
+	diode = newDevice(device.propCom)
 
-def loadModels():
-	''' loads model# descriptions from file '''
-	global models
-	global modelsInfo
-	outFile = open(modelsFilename, "r")
-	dat = pickle.load(outFile)
-	models = dat[0]
-	modelsInfo = dat[1]
-	outFile.close()
+#def loadModels():
+#	''' loads model# descriptions from file '''
+#	global models
+#	global modelsInfo
+#	outFile = open(modelsFilename, "r")
+#	dat = pickle.load(outFile)
+#	models = dat[0]
+#	modelsInfo = dat[1]
+#	outFile.close()
 	
 def newDevice(propCom, parent=None):
 	''' returns a new diode object created by the user OR NONE if user cancels '''
-	loadModels()
+	#loadModels()
 	dlg = NewDiodeInfoBox(parent)
 	ret = dlg.ShowModal()
-
-
 
 	cwd = os.getcwd()
 	if ret == wx.ID_OK:
 		#test for file existence
 		try:
+			minCur = dlg.model.minCur
+			maxCur = dlg.model.maxCur
+			modelNum = dlg.modelNum
+			serNum = dlg.serNum
+			wavLen = dlg.wavLen
 			fName = os.path.join(cwd, diodeFolder)
-			fName = os.path.join(fName, (str(dlg.diodeInfo.model) + "-" + str(dlg.diodeInfo.serNum) + ".pkl") )
+			fName = os.path.join(fName, (str(modelNum) + "-" + str(serNum) + ".pkl") )
 			print fName
 			if os.path.isfile(fName):
 				if logger.ask("Diode already exists. Do you want to replace the existing diode?") == False:
 					while os.path.isfile(fName):
-						fName = fName[0:-3] + "-2.pkl"
+						fName = fName[0:-3] + "-copy.pkl"
 			dlg.Destroy()
-			diode = Laser.LaserDiode(dlg.diodeInfo, fName=fName)
+			diode = Laser.LaserDiode(serNum, wavLen, modelNum, (minCur, maxCur),  fName=fName)
 			if propCom is not None:	
 				diode.MPD = propCom.channels[0]
 				diode.LSR_PWR = propCom.channels[1]
@@ -125,8 +118,11 @@ class NewDiodeInfoBox ( wx.Dialog ):
 		
 		mainSizer = wx.BoxSizer( wx.VERTICAL )
 		
-		modelSelectionChoices = models
-		self.modelSelection = wx.ListBox( self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, modelSelectionChoices, wx.LB_SINGLE )
+		self.modelSelectionChoices = []
+		for name in model.models:
+			self.modelSelectionChoices.append(name)
+
+		self.modelSelection = wx.ListBox( self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, self.modelSelectionChoices, wx.LB_SINGLE )
 		mainSizer.Add( self.modelSelection, 1, wx.ALL|wx.EXPAND, 5 )
 		
 		serNumSizer = wx.BoxSizer( wx.HORIZONTAL )
@@ -174,25 +170,14 @@ class NewDiodeInfoBox ( wx.Dialog ):
 		
 		self.Centre( wx.BOTH )
 	def onOk(self, event):
-		info = self.getModelInfo()
-		if info is not None:
-			self.diodeInfo = Laser.LaserDiodeInfo( self.serNumBox.GetValue(), self.wavLenBox.GetValue(), *info)
+			sel = self.modelSelection.GetSelection()
+			self.modelNum = self.modelSelectionChoices[sel]
+			self.model = model.models[self.modelNum]
+			self.serNum = self.serNumBox.GetValue()
+			self.wavLen = self.wavLenBox.GetValue()
 			self.EndModal(wx.ID_OK)
-		else:
-			self.onCancel(None)
 	def onCancel(self, event):
 		self.EndModal(wx.ID_CANCEL)
-	def getModelInfo(self):
-		''' returns the model info for the current selection '''
-		sel = self.modelSelection.GetSelection()
-		if sel == len(models)-1:
-			dlg = NewModelBox(self)
-			if dlg.ShowModal() == wx.ID_OK:
-				return dlg.info
-			else:
-				self.onCancel(None)
-		else:
-			return modelsInfo[sel]
 
 
 
